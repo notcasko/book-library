@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #1e1e2e;
+            --bg-sidebar: #181825;
+            --bg-card: #313244;
+            --text-main: #cdd6f4;
+            --text-muted: #a6adc8;
+            --accent: #cba6f7;
+            --accent-hover: #b4befe;
+            --border: #45475a;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            padding-bottom: 60px;
+        }
+
+        /* Connection Control Bar */
+        .control-bar {
+            background-color: var(--bg-sidebar);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .status-badge {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #f38ba8;
+            border-radius: 50%;
+        }
+
+        .status-dot.connected { background-color: #a6e3a1; }
+
+        /* --- SERIES GRID (4-WIDE) --- */
+        .main-container {
+            padding: 30px 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .section-title {
+            font-size: 1.6rem;
+            color: var(--accent);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+        }
+
+        .global-search-container {
+            position: relative;
+            width: 380px;
+        }
+
+        /* Search Dropdown Panel Architecture */
+        .search-dropdown {
+            position: absolute;
+            top: 105%;
+            right: 0;
+            width: 100%;
+            background-color: var(--bg-sidebar);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            max-height: 350px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+            display: none;
+        }
+
+        .dropdown-item {
+            padding: 12px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+        }
+
+        .dropdown-item:last-child { border-bottom: none; }
+        .dropdown-item:hover { background-color: var(--bg-card); }
+        
+        .dropdown-title { font-size: 0.95rem; font-weight: 600; color: #fff; }
+        .dropdown-meta { font-size: 0.75rem; color: var(--accent); margin-top: 2px; }
+        .dropdown-snippet { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .series-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .series-card {
+            background-color: var(--bg-sidebar);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+
+        .series-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent);
+            box-shadow: 0 8px 24px rgba(203, 166, 247, 0.15);
+        }
+
+        .series-card.active-series {
+            border-color: var(--accent);
+            background-color: var(--bg-card);
+        }
+
+        .series-cover {
+            width: 100%;
+            height: 260px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            background-color: var(--bg-card);
+        }
+
+        .series-name {
+            font-size: 1.1rem;
+            color: #fff;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .series-count {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            background-color: var(--bg-primary);
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            margin-top: 5px;
+        }
+
+        /* --- THE DASHBOARD WINDOW WORKSPACE --- */
+        .workspace-window {
+            display: flex;
+            height: 750px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            background-color: var(--bg-sidebar);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+        }
+
+        .sidebar {
+            width: 320px;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            flex-shrink: 0;
+            background-color: var(--bg-sidebar);
+        }
+
+        .search-box {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            font-size: 0.95rem;
+            margin-bottom: 15px;
+            outline: none;
+        }
+
+        .search-box:focus { border-color: var(--accent); }
+
+        .volume-list {
+            list-style: none;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .volume-item {
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 6px;
+            background-color: var(--bg-card);
+            transition: all 0.2s;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .volume-item:hover { background-color: var(--border); }
+        .volume-item.active { background-color: var(--accent); color: var(--bg-sidebar); font-weight: 600; }
+
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-primary);
+            overflow: hidden;
+        }
+
+        .content-header {
+            background-color: var(--bg-sidebar);
+            padding: 20px 30px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title h2 { font-size: 1.4rem; color: #fff; }
+
+        .btn-group { display: flex; gap: 10px; }
+
+        .btn {
+            padding: 10px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background-color: var(--accent); color: var(--bg-sidebar); }
+        .btn-primary:hover { background-color: var(--accent-hover); }
+        .btn-secondary { background-color: var(--bg-card); color: var(--text-main); border: 1px solid var(--border); }
+        .btn-secondary:hover { background-color: var(--border); }
+        .btn.active { outline: 2px solid #fff; }
+
+        .viewport-body {
+            padding: 30px;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        /* View Layout Containers */
+        .markdown-view { line-height: 1.6; }
+        .markdown-view h1, .markdown-view h2, .markdown-view h3 { color: var(--accent); margin-top: 18px; margin-bottom: 8px; }
+        .markdown-view h2 { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+        .markdown-view p { margin-bottom: 12px; }
+
+        .text-view {
+            white-space: pre-wrap;
+            font-family: 'Courier New', Courier, monospace;
+            line-height: 1.5;
+            background-color: var(--bg-sidebar);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            display: none;
+        }
+
+        @media (max-width: 1024px) { .series-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 650px) { .series-grid { grid-template-columns: 1fr; } .workspace-window { flex-direction: column; height: auto; } .global-search-container { width: 100%; } }
+    </style>
+</head>
+<body>
+
+    <div class="control-bar">
+        <button class="btn btn-primary" onclick="connectLibrary()">📁 Connect Project Folder</button>
+        <div class="status-badge">
+            <div id="statusDot" class="status-dot"></div>
+            <span id="statusText">Library Disconnected</span>
+        </div>
+    </div>
+
+    <div class="main-container">
+        
+        <h1 class="section-title">
+            <span>Library</span>
+            <div class="global-search-container">
+                <input type="search" id="globalSearch" class="search-box" style="margin-bottom: 0;" placeholder="Search entire library (Texts & Notes)...">
+                <div id="globalSearchResults" class="search-dropdown"></div>
+            </div>
+        </h1>
+        <div class="series-grid" id="seriesGrid">
+            </div>
+
+        <h1 class="section-title">
+            <span id="workspaceTitle">Workspace</span>
+            <button class="btn btn-secondary" onclick="scanDirectoryContents()" style="font-size:0.75rem; padding: 5px 12px;">🔄 Rescan Live Folders</button>
+        </h1>
+        
+        <div class="workspace-window">
+            <div class="sidebar">
+                <input type="search" id="searchField" class="search-box" placeholder="Search this series...">
+                <ul class="volume-list" id="volumeList"></ul>
+            </div>
+
+            <div class="main-content">
+                <div class="content-header">
+                    <div class="header-title">
+                        <h2 id="activeItemTitle">Select a volume</h2>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-secondary active" id="btnShowMd" onclick="switchViewMode('md')">📖 Notes & Reviews</button>
+                        <button class="btn btn-secondary" id="btnShowTxt" onclick="switchViewMode('txt')">📄 Read Full Text</button>
+                    </div>
+                </div>
+
+                <div class="viewport-body">
+                    <div id="mdViewport" class="markdown-view"></div>
+                    <div id="txtViewport" class="text-view"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let projectRootHandle = null;
+        let dbMetadata = {};
+        let structuredLibrary = [];
+        let activeSeriesIdx = 0;
+        let activeVolumeIdx = 0;
+
+        // --- IndexedDB Storage Access Manager ---
+        function getDB() {
+            return new Promise(res => {
+                let req = indexedDB.open("LibraryFolderDB", 1);
+                req.onupgradeneeded = () => req.result.createObjectStore("store");
+                req.onsuccess = () => res(req.result);
+            });
+        }
+        async function saveFolderHandle(handle) {
+            let db = await getDB();
+            db.transaction("store", "readwrite").objectStore("store").put(handle, "root");
+        }
+        async function loadFolderHandle() {
+            let db = await getDB();
+            return new Promise(res => {
+                let req = db.transaction("store").objectStore("store").get("root");
+                req.onsuccess = () => res(req.result);
+            });
+        }
+
+        async function connectLibrary() {
+            try {
+                projectRootHandle = await window.showDirectoryPicker();
+                await saveFolderHandle(projectRootHandle);
+                await bootLibraryEngine();
+            } catch (err) {
+                alert("Directory connection dropped or denied.");
+            }
+        }
+
+        async function bootLibraryEngine() {
+            document.getElementById('statusDot').classList.add('connected');
+            document.getElementById('statusText').innerText = "Connected to Live File System";
+            
+            try {
+                const dbFileHandle = await projectRootHandle.getFileHandle('db.json');
+                const file = await dbFileHandle.getFile();
+                const json = JSON.parse(await file.text());
+                dbMetadata = json.seriesSettings || {};
+            } catch(e) {
+                console.warn("db.json missing/unreadable. Using fallback folders.");
+            }
+            await scanDirectoryContents();
+        }
+
+        // --- Custom Markdown Splitting/Parsing per Volume Engine ---
+        function extractVolumeNotes(mdText, volIdx) {
+            if (!mdText || mdText.includes('*No separate notes.md file')) {
+                return '*No notes found for this series.*';
+            }
+            const volNum = volIdx + 1;
+            const regex = new RegExp(`##\\s*Volume\\s*0*${volNum}\\b[\\s\\S]*?(?=\\n##\\s*Volume|$)`, 'i');
+            const match = mdText.match(regex);
+            return match ? match[0].trim() : `*No specific summary notes documented for Volume ${volNum}.*`;
+        }
+
+        // --- Read, Track and Cache Files System Scan ---
+        async function scanDirectoryContents() {
+            if (!projectRootHandle) return;
+            try {
+                const booksDirHandle = await projectRootHandle.getDirectoryHandle('books');
+                structuredLibrary = [];
+
+                for await (const entry of booksDirHandle.values()) {
+                    if (entry.kind === 'directory') {
+                        const seriesFolderName = entry.name;
+                        const seriesData = {
+                            folderName: seriesFolderName,
+                            displayName: dbMetadata[seriesFolderName] || seriesFolderName,
+                            coverBlobUrl: '',
+                            markdownContent: '*No separate notes.md file located in directory.*',
+                            volumes: []
+                        };
+
+                        let rawTextEntries = [];
+                        let tempMdContent = '';
+
+                        for await (const fileEntry of entry.values()) {
+                            if (fileEntry.kind === 'file') {
+                                const filename = fileEntry.name;
+                                const lowerName = filename.toLowerCase();
+
+                                if (lowerName.endsWith('.txt')) {
+                                    rawTextEntries.push(fileEntry);
+                                } else if (lowerName.startsWith('cover.')) {
+                                    const imgFile = await fileEntry.getFile();
+                                    seriesData.coverBlobUrl = URL.createObjectURL(imgFile);
+                                } else if (lowerName.endsWith('.md')) {
+                                    const mdFile = await fileEntry.getFile();
+                                    tempMdContent = await mdFile.text();
+                                    seriesData.markdownContent = tempMdContent;
+                                }
+                            }
+                        }
+
+                        rawTextEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+
+                        for (let i = 0; i < rawTextEntries.length; i++) {
+                            const fileHandle = rawTextEntries[i];
+                            const textFile = await fileHandle.getFile();
+                            const fullString = await textFile.text();
+                            
+                            seriesData.volumes.push({
+                                handle: fileHandle,
+                                name: fileHandle.name,
+                                fullText: fullString,
+                                parsedNotes: extractVolumeNotes(tempMdContent, i)
+                            });
+                        }
+
+                        structuredLibrary.push(seriesData);
+                    }
+                }
+
+                renderSeriesGrid();
+                if(structuredLibrary.length > 0) {
+                    selectSeries(activeSeriesIdx);
+                }
+            } catch (err) {
+                console.error("Scanning pipeline interrupted:", err);
+            }
+        }
+
+        function renderSeriesGrid() {
+            const grid = document.getElementById('seriesGrid');
+            grid.innerHTML = '';
+
+            structuredLibrary.forEach((series, index) => {
+                const card = document.createElement('div');
+                card.className = `series-card ${index === activeSeriesIdx ? 'active-series' : ''}`;
+                card.onclick = () => selectSeries(index);
+                const volumeCountText = `${series.volumes.length} Volume${series.volumes.length === 1 ? '' : 's'}`;
+
+                card.innerHTML = `
+                    <img class="series-cover" src="${series.coverBlobUrl}" onerror="this.src='https://via.placeholder.com/200x260?text=No+Cover'">
+                    <div class="series-name">${series.displayName}</div>
+                    <div class="series-count">${volumeCountText}</div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function selectSeries(idx, targetVolIdx = 0, query = '', forceMode = '') {
+            activeSeriesIdx = idx;
+            document.querySelectorAll('.series-card').forEach((c, i) => c.classList.toggle('active-series', i === idx));
+
+            const currentSeries = structuredLibrary[idx];
+            document.getElementById('workspaceTitle').innerText = currentSeries.displayName;
+
+            renderVolumeSidebar(currentSeries.volumes);
+            
+            if(currentSeries.volumes.length > 0) {
+                loadVolumeData(targetVolIdx, query, forceMode, true);
+            } else {
+                clearMainWorkspace();
+            }
+        }
+
+        function renderVolumeSidebar(volumes) {
+            const list = document.getElementById('volumeList');
+            list.innerHTML = '';
+
+            volumes.forEach((vol) => {
+                const trueVolIndex = structuredLibrary[activeSeriesIdx].volumes.findIndex(v => v.name === vol.name);
+                const li = document.createElement('li');
+                li.className = `volume-item ${trueVolIndex === activeVolumeIdx ? 'active' : ''}`;
+                li.id = `sidebar-vol-${trueVolIndex}`;
+                li.innerText = vol.name.replace('.txt', '');
+                li.onclick = () => {
+                    const query = document.getElementById('searchField').value.trim();
+                    loadVolumeData(trueVolIndex, query, '', true);
+                };
+                list.appendChild(li);
+            });
+        }
+
+        // --- Core File Visual Loading, Highlighting and Scrolling Engine ---
+        async function loadVolumeData(volIdx, query = '', forceMode = '', shouldScroll = true) {
+            activeVolumeIdx = volIdx;
+            document.querySelectorAll('.volume-item').forEach(item => item.classList.remove('active'));
+            
+            const selectedItem = document.getElementById(`sidebar-vol-${volIdx}`);
+            if(selectedItem) selectedItem.classList.add('active');
+
+            const series = structuredLibrary[activeSeriesIdx];
+            if (!series || !series.volumes[volIdx]) return;
+            const volumeObject = series.volumes[volIdx];
+
+            document.getElementById('activeItemTitle').innerText = volumeObject.name.replace('.txt', '');
+
+            if (!query) {
+                query = document.getElementById('searchField').value.trim();
+            }
+
+            // 1. Text View Highlight Logic (Escapes structural HTML strings first)
+            if (query) {
+                let escapedText = escapeHtml(volumeObject.fullText);
+                let regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+                document.getElementById('txtViewport').innerHTML = escapedText.replace(regex, `<mark id="active-txt-match" style="background-color: #fab387; color: #11111b; padding: 2px 4px; border-radius: 4px;">$1</mark>`);
+            } else {
+                document.getElementById('txtViewport').innerText = volumeObject.fullText;
+            }
+
+            // 2. Notes MD View Highlight Logic
+            if (query) {
+                let regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+                let highlightedNotes = volumeObject.parsedNotes.replace(regex, `<mark id="active-md-match" style="background-color: #fab387; color: #11111b; padding: 2px 4px; border-radius: 4px;">$1</mark>`);
+                document.getElementById('mdViewport').innerHTML = marked.parse(highlightedNotes);
+            } else {
+                if (typeof marked !== 'undefined') {
+                    document.getElementById('mdViewport').innerHTML = marked.parse(volumeObject.parsedNotes);
+                } else {
+                    document.getElementById('mdViewport').innerText = volumeObject.parsedNotes;
+                }
+            }
+
+            // 3. Auto-Select Smart View Tab Mode
+            let mode = forceMode;
+            if (!mode && query) {
+                if (volumeObject.fullText.toLowerCase().includes(query.toLowerCase())) {
+                    mode = 'txt'; // Matches text, open "Read Full Text"
+                } else if (volumeObject.parsedNotes.toLowerCase().includes(query.toLowerCase())) {
+                    mode = 'md';
+                }
+            }
+            if (!mode) {
+                const activeBtn = document.querySelector('.btn-group .btn.active');
+                mode = activeBtn && activeBtn.id === 'btnShowTxt' ? 'txt' : 'md';
+            }
+
+            switchViewMode(mode);
+
+            // 4. Smooth Anchor Scrolling Action to targeted element line
+            if (query && shouldScroll) {
+                setTimeout(() => {
+                    let matchElem = document.getElementById(`active-${mode}-match`);
+                    if (matchElem) {
+                        matchElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 100);
+            }
+        }
+
+        function clearMainWorkspace() {
+            document.getElementById('activeItemTitle').innerText = "Empty Directory";
+            document.getElementById('mdViewport').innerHTML = "<p>No active text data volumes discovered.</p>";
+            document.getElementById('txtViewport').innerText = "";
+        }
+
+        function switchViewMode(mode) {
+            const mdBtn = document.getElementById('btnShowMd'); const txtBtn = document.getElementById('btnShowTxt');
+            const mdBox = document.getElementById('mdViewport'); const txtBox = document.getElementById('txtViewport');
+            if(mode === 'md') {
+                mdBtn.classList.add('active'); txtBtn.classList.remove('active');
+                mdBox.style.display = 'block'; txtBox.style.display = 'none';
+            } else {
+                txtBtn.classList.add('active'); mdBtn.classList.remove('active');
+                txtBox.style.display = 'block'; mdBox.style.display = 'none';
+            }
+        }
+
+        // --- GLOBAL CROSS-SERIES SEARCH ENGINE ---
+        document.getElementById('globalSearch').addEventListener('input', function(e) {
+            const query = e.target.value.toLowerCase().trim();
+            const dropdown = document.getElementById('globalSearchResults');
+            dropdown.innerHTML = '';
+
+            if(!query) {
+                dropdown.style.display = 'none';
+                return;
+            }
+
+            let matchesFound = 0;
+
+            structuredLibrary.forEach((series, sIdx) => {
+                series.volumes.forEach((vol, vIdx) => {
+                    const textMatch = vol.fullText.toLowerCase().indexOf(query);
+                    const noteMatch = vol.parsedNotes.toLowerCase().indexOf(query);
+                    const titleMatch = vol.name.toLowerCase().includes(query);
+
+                    if (titleMatch || textMatch !== -1 || noteMatch !== -1) {
+                        matchesFound++;
+                        let snippet = "";
+                        let matchType = "txt";
+                        
+                        if (textMatch !== -1) {
+                            snippet = "Text: ..." + vol.fullText.substring(Math.max(0, textMatch - 30), textMatch + 60) + "...";
+                            matchType = "txt";
+                        } else if (noteMatch !== -1) {
+                            snippet = "Notes: ..." + vol.parsedNotes.substring(Math.max(0, noteMatch - 30), noteMatch + 60) + "...";
+                            matchType = "md";
+                        } else {
+                            snippet = "Matched Title Name";
+                            matchType = "txt";
+                        }
+
+                        const item = document.createElement('div');
+                        item.className = 'dropdown-item';
+                        item.onclick = () => {
+                            dropdown.style.display = 'none';
+                            document.getElementById('globalSearch').value = '';
+                            selectSeries(sIdx, vIdx, query, matchType);
+                            document.getElementById('workspaceTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        };
+
+                        item.innerHTML = `
+                            <div class="dropdown-title">${vol.name.replace('.txt', '')}</div>
+                            <div class="dropdown-meta">${series.displayName}</div>
+                            <div class="dropdown-snippet">${escapeHtml(snippet)}</div>
+                        `;
+                        dropdown.appendChild(item);
+                    }
+                });
+            });
+
+            if(matchesFound > 0) {
+                dropdown.style.display = 'block';
+            } else {
+                dropdown.innerHTML = '<div class="dropdown-item" style="color:var(--text-muted); font-size:0.85rem;">No results found across system...</div>';
+                dropdown.style.display = 'block';
+            }
+        });
+
+        // --- LOCAL SERIES SEARCH ENGINE (Live Highlights while typing) ---
+        document.getElementById('searchField').addEventListener('input', function(e) {
+            const query = e.target.value.toLowerCase().trim();
+            if(!structuredLibrary[activeSeriesIdx]) return;
+
+            const targetVolumes = structuredLibrary[activeSeriesIdx].volumes;
+            
+            const filtered = targetVolumes.filter(vol => {
+                return vol.name.toLowerCase().includes(query) || 
+                       vol.fullText.toLowerCase().includes(query) || 
+                       vol.parsedNotes.toLowerCase().includes(query);
+            });
+
+            renderVolumeSidebar(filtered);
+
+            // Refreshes view highlights instantly on the screen while typing (without jumping scroll positions)
+            if (targetVolumes[activeVolumeIdx]) {
+                loadVolumeData(activeVolumeIdx, query, '', false);
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            if(!document.getElementById('globalSearch').contains(e.target)) {
+                document.getElementById('globalSearchResults').style.display = 'none';
+            }
+        });
+
+        // --- Essential Security Utilities ---
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Prevents crash conditions on regex tokens (?, *, [, etc)
+        }
+
+        async function autoConnectOnLoad() {
+            projectRootHandle = await loadFolderHandle();
+            if (projectRootHandle) {
+                document.getElementById('statusText').innerText = "🔑 Click anywhere to unlock your library";
+                const unlockGesture = async () => {
+                    try {
+                        if (await projectRootHandle.requestPermission({ mode: 'read' }) === 'granted') {
+                            await bootLibraryEngine();
+                            window.removeEventListener('click', unlockGesture);
+                        }
+                    } catch (e) {
+                        document.getElementById('statusText').innerText = "Unlock failed. Click 'Connect Project Folder'.";
+                    }
+                };
+                window.addEventListener('click', unlockGesture);
+            }
+        }
+
+        window.onload = autoConnectOnLoad;
+    </script>
+</body>
+</html>
