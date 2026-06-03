@@ -8,10 +8,11 @@ By utilizing modern browser APIs, this project eliminates the need for complex d
 
 ## ✨ What It Accomplishes
 
-* **Bypasses Server Overhead:** Brings the power of a full desktop reading application to a single static HTML file that runs completely locally.
-* **Dynamic Local File Syncing:** Automatically counts files, detects covers, and reads full text on-the-fly. If you add, remove, or rename a volume in your folder, clicking "Rescan" updates the UI instantly without reloading the page.
-* **Per-Volume Smart Document Splitting:** Lets you write all your reviews, character arcs, and key chapter actions for an *entire series* inside a single `notes.md` file. The app uses a custom parsing engine to extract and display only the notes relevant to the specific volume you are reading.
-* **Intelligent Cross-Series Search Engine:** Digs through every line of every text volume and markdown file simultaneously. Clicking a global search result auto-switches the viewport tab (Notes vs. Full Text), highlights your search query, and smoothly scrolls directly to the target line.
+* 🌐 **100% Local Privacy:** No accounts, no data logging, and no servers. All processes run entirely inside your browser using raw native disk handles via the File System Access API.
+* 📦 **Automated EPUB Separation Engine:** Dynamically unpacks and converts uncompressed `.epub` and `.txt` files into an organized structure.
+* 🖼️ **On-Demand Memory Performance:** Decouples images from text! Instead of converting files to heavy embedded Base64 strings, it automatically writes images to isolated external directories (`[series]/images/`), loading them on-demand **only** when active to ensure near-zero UI latency.
+* ✏️ **Integrated Markdown Sidecar Notes:** Create, edit, and modify structured notes or summaries (`notes.md`) alongside your full text volumes with a seamless in-dashboard Markdown editor.
+* 🔍 **Deep Global & Local Search Engine:** Search across your *entire* personal archive instantly or filter deep inside a single specific volume. Matches instantly highlight and auto-scroll directly to the exact relevant line.
 * **Persistent One-Click Reconnect:** Navigates browser security restrictions seamlessly. It remembers your folder structure using securely isolated IndexedDB tokens so you only have to pick your directory once. When you return, a single click anywhere on the page unlocks your entire archive.
 
 ---
@@ -76,8 +77,7 @@ Toggle effortlessly between two reading experiences:
 
 ## 🚀 Getting Started
 
-1. Save the dashboard code as `index.html` inside your main folder.
-2. Open `index.html` in any modern web browser (Chrome, Edge, Opera, or Brave).
-3. Click the **📁 Connect Project Folder** button at the top left.
-4. Select your main directory and grant the browser permission to read the files.
-5. Bookmark the page. The next time you open it, just click anywhere on the screen to instantly resume reading.
+1. **Save the Code:** Save the `index.html` file to your computer.
+2. **Launch:** Double-click `index.html` to open it natively in any modern browser (Chrome, Edge, Opera, or Brave recommended for API storage hooks).
+3. **Connect Your Archive:** Click **📁 Connect Project Folder** in the top control bar and choose an empty directory (or your pre-existing workspace folder).
+4. **Import & Read:** Hit **✚ Add Series**, drop your digital files in, name the title, and let the background compiler process your collection.
