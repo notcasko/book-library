@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
+    <title>Dynamic Book Archive Dashboard</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
     <style>
         :root {
@@ -355,6 +355,25 @@
         let activeSeriesIdx = 0;
         let activeVolumeIdx = 0;
 
+        // Cover Uploader
+        const style = document.createElement('style');
+        style.textContent = `
+            .cover-modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(17, 17, 27, 0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+            .cover-modal { background: #1e2030; border: 1px solid #494d64; border-radius: 12px; width: 450px; padding: 25px; color: #cad3f5; box-shadow: 0 8px 32px rgba(0,0,0,0.4); font-family: sans-serif; }
+            .cover-modal h3 { margin-top: 0; color: #8aadf4; font-size: 1.2rem; margin-bottom: 15px; }
+            .cover-modal input[type="text"] { width: 100%; padding: 10px; background: #24273a; border: 1px solid #494d64; border-radius: 6px; color: #cad3f5; margin-bottom: 10px; box-sizing: border-box; outline: none; }
+            .cover-modal input[type="text"]:focus { border-color: #8aadf4; }
+            .cover-modal .btn-primary { background: #8aadf4; color: #24273a; border: none; padding: 10px 15px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; margin-bottom: 20px; }
+            .cover-modal .btn-primary:hover { background: #7dc4f4; }
+            .cover-modal .drop-zone { border: 2px dashed #494d64; border-radius: 8px; padding: 30px 10px; text-align: center; background: #24273a; cursor: pointer; transition: background 0.2s, border-color 0.2s; }
+            .cover-modal .drop-zone.dragover { background: #363a4f; border-color: #a6da95; }
+            .cover-modal .drop-zone p { margin: 0; font-size: 0.9rem; color: #b8c0e0; }
+            .cover-modal .modal-close { background: transparent; border: none; color: #ee99a0; cursor: pointer; float: right; font-size: 1.1rem; margin-top: -5px; }
+            .choose-cover-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; background: #24273a; border: 2px dashed #494d64; color: #b8c0e0; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+            .choose-cover-placeholder:hover { border-color: #8aadf4; background: #363a4f; }
+        `;
+        document.head.appendChild(style);
+
         // --- IndexedDB Token Memory Retention Manager ---
         function getDB() {
             return new Promise(res => {
@@ -489,13 +508,148 @@
                 card.onclick = () => selectSeries(index);
                 const volumeCountText = `${series.volumes.length} Volume${series.volumes.length === 1 ? '' : 's'}`;
 
+                let coverElementHtml = '';
+                if (series.coverBlobUrl) {
+                    coverElementHtml = `<img class="series-cover" src="${series.coverBlobUrl}">`;
+                } else {
+                    coverElementHtml = `
+                        <div class="series-cover choose-cover-placeholder" onclick="openCoverModal(${index}); event.stopPropagation();">
+                            <span style="font-size: 1.5rem; margin-bottom: 6px;">🖼️</span>
+                            <span style="font-size: 0.85rem; font-weight: bold;">Choose cover</span>
+                        </div>
+                    `;
+                }
+
                 card.innerHTML = `
-                    <img class="series-cover" src="${series.coverBlobUrl}" onerror="this.src='https://via.placeholder.com/200x260?text=No+Cover'">
+                    ${coverElementHtml}
                     <div class="series-name">${series.displayName}</div>
                     <div class="series-count">${volumeCountText}</div>
                 `;
                 grid.appendChild(card);
             });
+        }
+
+        // --- Cover Image Assignment & Download Core ---
+        function openCoverModal(seriesIdx) {
+            const series = structuredLibrary[seriesIdx];
+            if (!series) return;
+
+            const backdrop = document.createElement('div');
+            backdrop.className = 'cover-modal-backdrop';
+            backdrop.onclick = () => backdrop.remove();
+
+            backdrop.innerHTML = `
+                <div class="cover-modal" onclick="event.stopPropagation()">
+                    <button class="modal-close" id="closeCoverModal">✕</button>
+                    <h3>Assign Cover: ${series.displayName}</h3>
+                    
+                    <label style="display:block; font-size:0.85rem; margin-bottom:5px; color:#b8c0e0;">Image URL Path</label>
+                    <input type="text" id="coverUrlInput" placeholder="https://example.com/image.jpg">
+                    <button class="btn-primary" id="btnDownloadCover">Download Cover from Link</button>
+                    
+                    <div class="drop-zone" id="coverDropZone">
+                        <p>Drag & drop an image here</p>
+                        <p style="font-size:0.75rem; color:#6e738d; margin-top:5px;">or click to browse files</p>
+                        <input type="file" id="coverFileInput" accept="image/*" style="display:none;">
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(backdrop);
+
+            const closeBtn = backdrop.querySelector('#closeCoverModal');
+            const downloadBtn = backdrop.querySelector('#btnDownloadCover');
+            const urlInput = backdrop.querySelector('#coverUrlInput');
+            const dropZone = backdrop.querySelector('#coverDropZone');
+            const fileInput = backdrop.querySelector('#coverFileInput');
+
+            closeBtn.onclick = () => backdrop.remove();
+            dropZone.onclick = () => fileInput.click();
+
+            // Handle Local File Browser Selection
+            fileInput.onchange = async (e) => {
+                if (e.target.files.length > 0) {
+                    await processAndSaveCoverFile(e.target.files[0], series, backdrop);
+                }
+            };
+
+            // Handle Drag and Drop Actions
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+
+            dropZone.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) {
+                    const file = e.dataTransfer.files[0];
+                    if (file.type.startsWith('image/')) {
+                        await processAndSaveCoverFile(file, series, backdrop);
+                    }
+                }
+            });
+
+            // Handle Image URL Fetch Routine
+            downloadBtn.onclick = async () => {
+                const url = urlInput.value.trim();
+                if (!url) return;
+
+                downloadBtn.innerText = "Downloading...";
+                downloadBtn.disabled = true;
+
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error("Network response error");
+                    
+                    const blob = await response.blob();
+                    if (!blob.type.startsWith('image/')) throw new Error("File is not an image");
+
+                    // Extract file extension from content-type header or source URL path string
+                    let ext = 'jpg';
+                    if (blob.type === 'image/png') ext = 'png';
+                    else if (blob.type === 'image/webp') ext = 'webp';
+                    else if (blob.type === 'image/gif') ext = 'gif';
+                    else {
+                        const matches = url.match(/\.(jpg|jpeg|png|webp|gif)\??/i);
+                        if (matches) ext = matches[1].toLowerCase().replace('jpeg', 'jpg');
+                    }
+
+                    // Convert Blob payload into standard File Object formatting structure
+                    const generatedFile = new File([blob], `cover.${ext}`, { type: blob.type });
+                    await processAndSaveCoverFile(generatedFile, series, backdrop);
+                } catch (err) {
+                    alert("Check your internet connection and try again later");
+                    downloadBtn.innerText = "Download Cover from Link";
+                    downloadBtn.disabled = false;
+                }
+            };
+        }
+
+        async function processAndSaveCoverFile(file, series, modalElement) {
+            try {
+                let ext = file.name.split('.').pop().toLowerCase();
+                if (ext === 'jpeg') ext = 'jpg';
+
+                // Save image file explicitly into the designated volume series folder directory layout context
+                const fileHandle = await series.dirHandle.getFileHandle(`cover.${ext}`, { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(file);
+                await writable.close();
+
+                // Generate active live environment state context update
+                series.coverBlobUrl = URL.createObjectURL(file);
+                
+                modalElement.remove();
+                renderSeriesGrid();
+            } catch (err) {
+                console.error(err);
+                alert("Failed to write to file system. Please check folder permissions.");
+            }
         }
 
         function selectSeries(idx, targetVolIdx = 0, query = '', forceMode = '') {
@@ -642,9 +796,7 @@
 
             lines.forEach(line => {
                 const trimmed = line.trim();
-                // Matches lines starting with "Chapter" or "Interlude" (case-insensitive)
                 if (/^(chapter|interlude)\b/i.test(trimmed)) {
-                    // Sanitize potential markdown structural break tokens inside titles
                     const cleanTitle = trimmed.replace(/[#*`]/g, '').trim();
                     template += `### ${cleanTitle}\n- \n\n`;
                     foundChapters = true;
@@ -673,7 +825,6 @@
                 let currentNotesText = volumeObject.parsedNotes;
                 const volNum = activeVolumeIdx + 1;
 
-                // Fallback check: If missing or set to placeholder notice, generate our active text parser breakdown template
                 if (currentNotesText.includes('*No specific summary notes documented') || currentNotesText.includes('*No notes found')) {
                     currentNotesText = generateAutoChapterTemplate(volumeObject.fullText, volNum);
                 }
