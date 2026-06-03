@@ -246,7 +246,7 @@
 
         .header-title h2 { font-size: 1.4rem; color: #fff; }
 
-        .btn-group { display: flex; gap: 10px; }
+        .btn-group { display: flex; gap: 10px; align-items: center; }
 
         .btn {
             padding: 10px 16px;
@@ -306,7 +306,7 @@
         <h1 class="section-title">
             <span>Library</span>
             <div class="global-search-container">
-                <input type="search" id="globalSearch" class="search-box" style="margin-bottom: 0;" placeholder="Search entire library (Texts & Notes)...">
+                <input type="search" id="globalSearch" class="search-box" style="margin-bottom: 0;" placeholder="Search entire library (All texts & MD)...">
                 <div id="globalSearchResults" class="search-dropdown"></div>
             </div>
         </h1>
@@ -332,6 +332,10 @@
                     <div class="btn-group">
                         <button class="btn btn-secondary active" id="btnShowMd" onclick="switchViewMode('md')">📖 Notes & Reviews</button>
                         <button class="btn btn-secondary" id="btnShowTxt" onclick="switchViewMode('txt')">📄 Read Full Text</button>
+                        
+                        <button class="btn btn-primary" id="btnEditMd" onclick="toggleMdEditMode(true)" style="background-color: var(--accent); color: var(--bg-sidebar);">✏️ Edit Notes</button>
+                        <button class="btn" id="btnSaveMd" onclick="saveMarkdownChanges()" style="display: none; background-color: #a6e3a1; color: #11111b;">💾 Save</button>
+                        <button class="btn btn-secondary" id="btnCancelMd" onclick="toggleMdEditMode(false)" style="display: none;">❌ Cancel</button>
                     </div>
                 </div>
 
@@ -351,7 +355,7 @@
         let activeSeriesIdx = 0;
         let activeVolumeIdx = 0;
 
-        // --- IndexedDB Storage Access Manager ---
+        // --- IndexedDB Token Memory Retention Manager ---
         function getDB() {
             return new Promise(res => {
                 let req = indexedDB.open("LibraryFolderDB", 1);
@@ -373,7 +377,7 @@
 
         async function connectLibrary() {
             try {
-                projectRootHandle = await window.showDirectoryPicker();
+                projectRootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
                 await saveFolderHandle(projectRootHandle);
                 await bootLibraryEngine();
             } catch (err) {
@@ -399,7 +403,7 @@
         // --- Custom Markdown Splitting/Parsing per Volume Engine ---
         function extractVolumeNotes(mdText, volIdx) {
             if (!mdText || mdText.includes('*No separate notes.md file')) {
-                return '*No notes found for this series.*';
+                return `*No notes found for this series.*`;
             }
             const volNum = volIdx + 1;
             const regex = new RegExp(`##\\s*Volume\\s*0*${volNum}\\b[\\s\\S]*?(?=\\n##\\s*Volume|$)`, 'i');
@@ -422,7 +426,8 @@
                             displayName: dbMetadata[seriesFolderName] || seriesFolderName,
                             coverBlobUrl: '',
                             markdownContent: '*No separate notes.md file located in directory.*',
-                            volumes: []
+                            volumes: [],
+                            dirHandle: entry
                         };
 
                         let rawTextEntries = [];
@@ -545,7 +550,7 @@
                 query = document.getElementById('searchField').value.trim();
             }
 
-            // 1. Text View Highlight Logic (Escapes structural HTML strings first)
+            // 1. Text View Highlight Logic
             if (query) {
                 let escapedText = escapeHtml(volumeObject.fullText);
                 let regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
@@ -571,7 +576,7 @@
             let mode = forceMode;
             if (!mode && query) {
                 if (volumeObject.fullText.toLowerCase().includes(query.toLowerCase())) {
-                    mode = 'txt'; // Matches text, open "Read Full Text"
+                    mode = 'txt';
                 } else if (volumeObject.parsedNotes.toLowerCase().includes(query.toLowerCase())) {
                     mode = 'md';
                 }
@@ -603,12 +608,134 @@
         function switchViewMode(mode) {
             const mdBtn = document.getElementById('btnShowMd'); const txtBtn = document.getElementById('btnShowTxt');
             const mdBox = document.getElementById('mdViewport'); const txtBox = document.getElementById('txtViewport');
+            const editBtn = document.getElementById('btnEditMd');
+            const saveBtn = document.getElementById('btnSaveMd');
+            const cancelBtn = document.getElementById('btnCancelMd');
+
             if(mode === 'md') {
                 mdBtn.classList.add('active'); txtBtn.classList.remove('active');
                 mdBox.style.display = 'block'; txtBox.style.display = 'none';
+                
+                if (mdBox.querySelector('#mdEditorTextarea')) {
+                    editBtn.style.display = 'none'; saveBtn.style.display = 'inline-block'; cancelBtn.style.display = 'inline-block';
+                } else {
+                    editBtn.style.display = 'inline-block'; saveBtn.style.display = 'none'; cancelBtn.style.display = 'none';
+                }
             } else {
                 txtBtn.classList.add('active'); mdBtn.classList.remove('active');
                 txtBox.style.display = 'block'; mdBox.style.display = 'none';
+                editBtn.style.display = 'none'; saveBtn.style.display = 'none'; cancelBtn.style.display = 'none';
+            }
+        }
+
+        // --- Helper: Scans volume text to find and list all structural index markers ---
+        function generateAutoChapterTemplate(fullText, volNum) {
+            let template = `## Volume ${volNum}\n\n`;
+            
+            if (!fullText) {
+                template += `- Overview Summary:\n`;
+                return template;
+            }
+
+            const lines = fullText.split(/\r?\n/);
+            let foundChapters = false;
+
+            lines.forEach(line => {
+                const trimmed = line.trim();
+                // Matches lines starting with "Chapter" or "Interlude" (case-insensitive)
+                if (/^(chapter|interlude)\b/i.test(trimmed)) {
+                    // Sanitize potential markdown structural break tokens inside titles
+                    const cleanTitle = trimmed.replace(/[#*`]/g, '').trim();
+                    template += `### ${cleanTitle}\n- \n\n`;
+                    foundChapters = true;
+                }
+            });
+
+            if (!foundChapters) {
+                template += `### General Notes\n- \n`;
+            }
+
+            return template.trim();
+        }
+
+        // --- Toggle Inline Note Editing Sub-System ---
+        function toggleMdEditMode(isEditing) {
+            const mdBox = document.getElementById('mdViewport');
+            const editBtn = document.getElementById('btnEditMd');
+            const saveBtn = document.getElementById('btnSaveMd');
+            const cancelBtn = document.getElementById('btnCancelMd');
+            const series = structuredLibrary[activeSeriesIdx];
+            const volumeObject = series ? series.volumes[activeVolumeIdx] : null;
+
+            if (!volumeObject) return;
+
+            if (isEditing) {
+                let currentNotesText = volumeObject.parsedNotes;
+                const volNum = activeVolumeIdx + 1;
+
+                // Fallback check: If missing or set to placeholder notice, generate our active text parser breakdown template
+                if (currentNotesText.includes('*No specific summary notes documented') || currentNotesText.includes('*No notes found')) {
+                    currentNotesText = generateAutoChapterTemplate(volumeObject.fullText, volNum);
+                }
+
+                mdBox.innerHTML = `
+                    <textarea id="mdEditorTextarea" style="width: 100%; height: 500px; background-color: var(--bg-sidebar); color: var(--text-main); border: 1px solid var(--border); border-radius: 8px; padding: 15px; font-family: monospace; font-size: 0.95rem; line-height: 1.5; resize: vertical; outline: none;"></textarea>
+                `;
+                document.getElementById('mdEditorTextarea').value = currentNotesText;
+                document.getElementById('mdEditorTextarea').focus();
+
+                editBtn.style.display = 'none'; saveBtn.style.display = 'inline-block'; cancelBtn.style.display = 'inline-block';
+            } else {
+                if (typeof marked !== 'undefined') {
+                    mdBox.innerHTML = marked.parse(volumeObject.parsedNotes);
+                } else {
+                    mdBox.innerText = volumeObject.parsedNotes;
+                }
+                editBtn.style.display = 'inline-block'; saveBtn.style.display = 'none'; cancelBtn.style.display = 'none';
+            }
+        }
+
+        // --- Readwrite Save Execution Engine (Overwrites or Creates notes.md natively) ---
+        async function saveMarkdownChanges() {
+            const series = structuredLibrary[activeSeriesIdx];
+            const volIdx = activeVolumeIdx;
+            const textarea = document.getElementById('mdEditorTextarea');
+            if (!textarea || !series) return;
+
+            let editedText = textarea.value.trim();
+            const volNum = volIdx + 1;
+
+            if (!new RegExp(`^##\\s*Volume\\s*0*${volNum}\\b`, 'i').test(editedText)) {
+                editedText = `## Volume ${volNum}\n` + editedText;
+            }
+
+            let masterContent = series.markdownContent;
+            if (masterContent.includes('*No separate notes.md file located')) {
+                masterContent = '';
+            }
+
+            const regex = new RegExp(`##\\s*Volume\\s*0*${volNum}\\b[\\s\\S]*?(?=\\n##\\s*Volume|$)`, 'i');
+            
+            if (regex.test(masterContent)) {
+                masterContent = masterContent.replace(regex, editedText);
+            } else {
+                masterContent = masterContent ? `${masterContent}\n\n${editedText}` : editedText;
+            }
+
+            try {
+                const fileHandle = await series.dirHandle.getFileHandle('notes.md', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(masterContent);
+                await writable.close();
+
+                series.markdownContent = masterContent;
+                series.volumes[volIdx].parsedNotes = editedText;
+
+                toggleMdEditMode(false);
+                loadVolumeData(volIdx, '', 'md', false);
+            } catch (err) {
+                console.error(err);
+                alert("Failed to write to folder. Please click 'Connect Project Folder' again to re-authenticate write-access rights.");
             }
         }
 
@@ -689,7 +816,6 @@
 
             renderVolumeSidebar(filtered);
 
-            // Refreshes view highlights instantly on the screen while typing (without jumping scroll positions)
             if (targetVolumes[activeVolumeIdx]) {
                 loadVolumeData(activeVolumeIdx, query, '', false);
             }
@@ -706,7 +832,7 @@
             return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
         }
         function escapeRegExp(string) {
-            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Prevents crash conditions on regex tokens (?, *, [, etc)
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
 
         async function autoConnectOnLoad() {
@@ -715,7 +841,7 @@
                 document.getElementById('statusText').innerText = "🔑 Click anywhere to unlock your library";
                 const unlockGesture = async () => {
                     try {
-                        if (await projectRootHandle.requestPermission({ mode: 'read' }) === 'granted') {
+                        if (await projectRootHandle.requestPermission({ mode: 'readwrite' }) === 'granted') {
                             await bootLibraryEngine();
                             window.removeEventListener('click', unlockGesture);
                         }
