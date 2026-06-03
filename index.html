@@ -1030,39 +1030,81 @@
 
         // --- GLOBAL CROSS-SERIES SEARCH ENGINE ---
         document.getElementById('globalSearch').addEventListener('input', function(e) {
-            const query = e.target.value.toLowerCase().trim();
+            const query = e.target.value.toLowerCase(); // Keeps surrounding spaces intact
             const dropdown = document.getElementById('globalSearchResults');
             dropdown.innerHTML = '';
 
-            if(!query) { dropdown.style.display = 'none'; return; }
+            if(!query || query.trim() === '') { dropdown.style.display = 'none'; return; }
             let matchesFound = 0;
 
             structuredLibrary.forEach((series, sIdx) => {
                 series.volumes.forEach((vol, vIdx) => {
-                    const textMatch = vol.fullText.toLowerCase().indexOf(query);
-                    const noteMatch = vol.parsedNotes.toLowerCase().indexOf(query);
-                    if (vol.name.toLowerCase().includes(query) || textMatch !== -1 || noteMatch !== -1) {
+                    
+                    // 1. Check matching text strings inside volume names
+                    if (vol.name.toLowerCase().includes(query)) {
                         matchesFound++;
-                        let snippet = textMatch !== -1 ? "Text: ..." + vol.fullText.substring(Math.max(0, textMatch - 30), textMatch + 60) + "..." : (noteMatch !== -1 ? "Notes: ..." + vol.parsedNotes.substring(Math.max(0, noteMatch - 30), noteMatch + 60) + "..." : "Matched Volume Name");
                         const item = document.createElement('div');
                         item.className = 'dropdown-item';
                         item.onclick = () => {
                             dropdown.style.display = 'none'; document.getElementById('globalSearch').value = '';
-                            selectSeries(sIdx, vIdx, query, textMatch !== -1 ? 'txt' : 'md');
+                            selectSeries(sIdx, vIdx, query, 'txt', 1);
                             document.getElementById('workspaceTitle').scrollIntoView({ behavior: 'smooth' });
                         };
-                        item.innerHTML = `<div class="dropdown-title">${vol.name.replace('.txt', '')}</div><div class="dropdown-meta">${series.displayName}</div><div class="dropdown-snippet">${escapeHtml(snippet)}</div>`;
+                        item.innerHTML = `<div class="dropdown-title">${vol.name.replace('.txt', '')}</div><div class="dropdown-meta">${series.displayName} (Title Match)</div>`;
                         dropdown.appendChild(item);
                     }
+
+                    // 2. Loop iteratively through text and notes to output ALL distinct matching instances
+                    const scanSourceInstances = (sourceText, typeCode) => {
+                        let pos = sourceText.toLowerCase().indexOf(query);
+                        let matchCounter = 0;
+
+                        while (pos !== -1) {
+                            matchesFound++;
+                            matchCounter++;
+                            const currentPos = pos;
+                            const targetedMatchIndex = matchCounter;
+
+                            let snippet = "..." + sourceText.substring(Math.max(0, currentPos - 30), currentPos + 60) + "...";
+                            const item = document.createElement('div');
+                            item.className = 'dropdown-item';
+                            item.onclick = () => {
+                                dropdown.style.display = 'none'; document.getElementById('globalSearch').value = '';
+                                selectSeries(sIdx, vIdx, query, typeCode, targetedMatchIndex);
+                                document.getElementById('workspaceTitle').scrollIntoView({ behavior: 'smooth' });
+                            };
+
+                            item.innerHTML = `
+                                <div class="dropdown-title">${vol.name.replace('.txt', '')} <span style="font-size:0.75rem; color:var(--accent);">[Occurrence ${matchCounter}]</span></div>
+                                <div class="dropdown-meta">${series.displayName} (${typeCode === 'txt' ? 'Text Body' : 'Sidecar Notes'})</div>
+                                <div class="dropdown-snippet">${escapeHtml(snippet)}</div>
+                            `;
+                            dropdown.appendChild(item);
+
+                            pos = sourceText.toLowerCase().indexOf(query, pos + query.length);
+                            if (matchesFound > 150) break; // Hard safety cutoff for massive trace files
+                        }
+                    };
+
+                    scanSourceInstances(vol.fullText, 'txt');
+                    scanSourceInstances(vol.parsedNotes, 'md');
                 });
             });
+            
             dropdown.style.display = 'block';
             if(matchesFound === 0) dropdown.innerHTML = '<div class="dropdown-item" style="color:var(--text-muted); font-size:0.85rem;">No results discovered...</div>';
         });
 
-        // --- LOCAL SERIES SEARCH ENGINE (Live Highlights while typing) ---
+        // --- LOCAL SERIES SEARCH ENGINE ---
         document.getElementById('searchField').addEventListener('input', function(e) {
-            const query = e.target.value.toLowerCase().trim();
+            const query = e.target.value.toLowerCase(); // Keeps surrounding spaces intact
+            if(!query || query.trim() === '') {
+                if(structuredLibrary[activeSeriesIdx]) {
+                    renderVolumeSidebar(structuredLibrary[activeSeriesIdx].volumes);
+                    loadVolumeData(activeVolumeIdx, '', '', false);
+                }
+                return;
+            }
             if(!structuredLibrary[activeSeriesIdx]) return;
             const filtered = structuredLibrary[activeSeriesIdx].volumes.filter(vol => vol.name.toLowerCase().includes(query) || vol.fullText.toLowerCase().includes(query) || vol.parsedNotes.toLowerCase().includes(query));
             renderVolumeSidebar(filtered);
